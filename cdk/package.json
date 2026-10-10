@@ -1,0 +1,20 @@
+{
+  "name": "aws-agents-comparison-verification",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy SampleApiStack ReactEcsStack --require-approval never",
+    "destroy": "cdk destroy --all"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "aws-cdk": "2.1145.0",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.8.1"
+  }
+}

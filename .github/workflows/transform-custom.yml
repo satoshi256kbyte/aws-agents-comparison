@@ -1,0 +1,31 @@
+name: Transform Custom modernization
+
+on:
+  workflow_dispatch:
+    inputs:
+      transformation_name:
+        description: Registered AWS Transform custom transformation definition
+        required: true
+        type: string
+
+jobs:
+  transform:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run AWS Transform custom
+        env:
+          TRANSFORMATION_NAME: ${{ inputs.transformation_name }}
+        run: |
+          command -v atx
+          atx custom def exec \
+            --code-repository-path . \
+            --transformation-name "$TRANSFORMATION_NAME" \
+            --non-interactive \
+            --trust-all-tools \
+            --limit 30
+      - name: Run tests after transformation
+        run: |
+          python -m compileall apps/lambda-api

@@ -1,0 +1,60 @@
+name: CDK CI/CD
+
+on:
+  pull_request:
+    paths:
+      - 'cdk/**'
+      - 'apps/**'
+      - '.github/workflows/cdk.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cdk/**'
+      - 'apps/**'
+      - '.github/workflows/cdk.yml'
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  synth:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx cdk synth
+
+  deploy:
+    if: github.event_name == 'push'
+    needs: synth
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: cdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: npx cdk deploy --all --require-approval never

@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*~
+
+# Kiro / KiroCrew が生成するローカル設定
+.kiro/settings/
+
+# 一時ファイル
+*.log
+*.tmp
+.env
+.env.*
+
+# Node.js / CDK
+node_modules/
+cdk.context.json
+cdk.out/
+.tmp/
+.cdk-home/
