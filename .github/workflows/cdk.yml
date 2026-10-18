@@ -58,3 +58,22 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - run: npx cdk deploy --all --require-approval never
+
+  release-test:
+    if: github.event_name == 'push' && needs.deploy.result == 'success'
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Run staging release test
+        uses: aws-actions/devops-agent-qa@v1
+        with:
+          webhook-url: ${{ secrets.DEVOPS_AGENT_WEBHOOK_URL }}
+          webhook-secret: ${{ secrets.DEVOPS_AGENT_WEBHOOK_SECRET }}
+          test-profile-id: ${{ vars.DEVOPS_AGENT_TEST_PROFILE_ID }}
+          test-requirement: Verify the deployed staging or test application after the CDK release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

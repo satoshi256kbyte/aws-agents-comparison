@@ -1,31 +1,141 @@
-name: Transform Custom modernization
+name: Transform Custom monthly modernization
 
 on:
+  schedule:
+    - cron: '0 3 1 * *'
   workflow_dispatch:
     inputs:
       transformation_name:
-        description: Registered AWS Transform custom transformation definition
-        required: true
+        description: AWS Transform transformation definition name
+        required: false
         type: string
+      transformation_version:
+        description: Optional AWS Transform transformation definition version
+        required: false
+        type: string
+      additional_plan_context:
+        description: Optional target version or modernization constraints
+        required: false
+        type: string
+      build_command:
+        description: Optional command used to validate the transformed repository
+        required: false
+        type: string
+
+env:
+  AWS_REGION: ap-northeast-1
 
 jobs:
   transform:
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - name: Run AWS Transform custom
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install AWS Transform CLI
+        run: |
+          curl -fsSL https://transform-cli.awsstatic.com/install.sh | bash
+          atx --version
+
+      - name: Resolve transformation settings
         env:
-          TRANSFORMATION_NAME: ${{ inputs.transformation_name }}
+          INPUT_TRANSFORMATION_NAME: ${{ inputs.transformation_name }}
+          INPUT_TRANSFORMATION_VERSION: ${{ inputs.transformation_version }}
+          INPUT_PLAN_CONTEXT: ${{ inputs.additional_plan_context }}
+          INPUT_BUILD_COMMAND: ${{ inputs.build_command }}
+          VARIABLE_TRANSFORMATION_NAME: ${{ vars.ATX_TRANSFORMATION_NAME }}
+          VARIABLE_TRANSFORMATION_VERSION: ${{ vars.ATX_TRANSFORMATION_VERSION }}
+          VARIABLE_PLAN_CONTEXT: ${{ vars.ATX_ADDITIONAL_PLAN_CONTEXT }}
+          VARIABLE_BUILD_COMMAND: ${{ vars.ATX_BUILD_COMMAND }}
         run: |
-          command -v atx
-          atx custom def exec \
-            --code-repository-path . \
-            --transformation-name "$TRANSFORMATION_NAME" \
-            --non-interactive \
-            --trust-all-tools \
+          transformation_name="${INPUT_TRANSFORMATION_NAME:-$VARIABLE_TRANSFORMATION_NAME}"
+          transformation_version="${INPUT_TRANSFORMATION_VERSION:-$VARIABLE_TRANSFORMATION_VERSION}"
+          plan_context="${INPUT_PLAN_CONTEXT:-$VARIABLE_PLAN_CONTEXT}"
+          build_command="${INPUT_BUILD_COMMAND:-$VARIABLE_BUILD_COMMAND}"
+
+          if [ -z "$transformation_name" ]; then
+            echo 'Set workflow_dispatch.transformation_name or the ATX_TRANSFORMATION_NAME repository variable.' >&2
+            exit 1
+          fi
+
+          if [ -z "$build_command" ]; then
+            build_command='cd cdk && npm ci && npm run build && cd .. && python -m compileall apps/lambda-api'
+          fi
+
+          {
+            printf 'TRANSFORMATION_NAME=%s\n' "$transformation_name"
+            printf 'TRANSFORMATION_VERSION=%s\n' "$transformation_version"
+            printf 'ATX_PLAN_CONTEXT=%s\n' "$plan_context"
+            printf 'ATX_BUILD_COMMAND=%s\n' "$build_command"
+          } >> "$GITHUB_ENV"
+
+      - name: Create transformation branch
+        run: git switch -c "transform/monthly-${GITHUB_RUN_ID}"
+
+      - name: Run AWS Transform custom
+        run: |
+          args=(
+            custom def exec
+            --code-repository-path .
+            --transformation-name "$TRANSFORMATION_NAME"
+            --build-command "$ATX_BUILD_COMMAND"
+            --non-interactive
+            --trust-all-tools
             --limit 30
-      - name: Run tests after transformation
+          )
+
+          if [ -n "$TRANSFORMATION_VERSION" ]; then
+            args+=(--transformation-version "$TRANSFORMATION_VERSION")
+          fi
+
+          if [ -n "$ATX_PLAN_CONTEXT" ]; then
+            args+=(--configuration "additionalPlanContext=$ATX_PLAN_CONTEXT")
+          fi
+
+          atx "${args[@]}"
+
+      - name: Validate transformed repository
         run: |
+          cd cdk
+          npm ci
+          npm run build
+          cd ..
           python -m compileall apps/lambda-api
+
+      - name: Create pull request when changes exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: transform/monthly-${{ github.run_id }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo 'AWS Transform made no changes; no pull request will be created.'
+            exit 0
+          fi
+
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit -m 'chore: apply monthly AWS Transform modernization'
+          git push --set-upstream origin "$BRANCH_NAME"
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title 'chore: apply monthly AWS Transform modernization' \
+            --body 'This pull request was generated by the monthly AWS Transform custom workflow.'

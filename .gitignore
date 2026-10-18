@@ -25,3 +25,4 @@ cdk.context.json
 cdk.out/
 .tmp/
 .cdk-home/
+aws-agents-comparison-2026.md
