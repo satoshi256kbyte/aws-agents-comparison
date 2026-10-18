@@ -132,14 +132,58 @@ aws wellarchitected update-agent-recommendation-status \
 | `cdk.yml` | PRでsynth、mainへのpushでsynth・CDK deploy・deploy後のrelease test |
 | `transform-custom.yml` | 毎月1日または手動でATXを実行し、変更があればPRを作成 |
 
-AWS DevOps Agentのrelease testingは、CDK deployが成功したmain pushの後に
-`aws-actions/devops-agent-qa@v1`で起動します。
-Actionには `webhook-url`、`webhook-secret`、`test-profile-id`、任意の
-`test-requirement`を渡します。
+### AWS DevOps Agentの事前準備とrelease testing
 
-Test Profileにはstagingまたはtest環境のURLを登録してください。
-release testingは探索的テスト中にPOST、PUT、DELETEを実行することがあるため、本番URLは対象にしません。
-URL、テスト種別、認証情報などはDevOps Agent側のTest Profileで管理します。
+GitHub Actionsからrelease testingを起動する前に、AWS DevOps Agent側でAgent Space、Test profile、
+Webhookを準備します。
+`cdk.yml`では、CDK deploy成功後に`aws-actions/devops-agent-qa@v1`を実行し、Webhook URL、
+Webhook Secret、Test profile ID、任意のtest requirementをActionへ渡します。
+
+#### Test profileの作成
+
+1. AWS DevOps Agentで対象のAgent Spaceを用意します。
+2. Agent SpaceのRelease Managerを開き、Test profileを作成します。
+3. Test profileにstagingまたはtest環境のTarget URLを設定します。
+4. 対象がWebアプリならUI testing、REST APIならAPI testingを選択します。
+5. VPC内の非公開アプリを対象にする場合は、Release Management environmentとprivate connectionを
+   別途設定し、Test profileからその環境を選択します。
+
+release testingは探索的テスト中にPOST、PUT、DELETEなどの実リクエストを実行し得ます。
+データの作成、変更、削除や通知などが起こる可能性があるため、本番URLは使わず、stagingまたはtest環境を
+対象にしてください。Target URL、テスト種別、認証情報などはDevOps Agent側のTest profileで管理します。
+
+#### Webhookの作成
+
+1. DevOps Agentコンソールで対象のAgent Spaceを開きます。
+2. **Capabilities**タブの**Webhook**セクションで**Configure**または**Add webhook**を選択します。
+3. **Generic webhook**を作成し、GitHub Actionsから使う認証方式として**HMAC**を選択します。
+4. 生成されたWebhook URLと署名Secretを保存します。Secretは作成時に一度だけ表示され、後から取得
+   できないため、安全に保管してください。
+
+HMACでは、送信側がtimestampとpayloadを署名し、AWS DevOps Agentが署名を検証します。
+このリポジトリのworkflowでは公式Actionが署名を処理するため、独自の署名コードは追加しません。
+
+#### GitHub Actions側の設定
+
+GitHubリポジトリの
+`Settings → Secrets and variables → Actions → Repository secrets`に、次の2つを登録します。
+
+- `DEVOPS_AGENT_WEBHOOK_URL`
+- `DEVOPS_AGENT_WEBHOOK_SECRET`
+
+`Repository variables`には`DEVOPS_AGENT_TEST_PROFILE_ID`を登録します。Test profile IDは通常`ki-`で
+始まります。`AWS_ROLE_ARN`は既存のRepository secretとして、CDK deployとAWS Transform customの実行に
+使うGitHub Actions用IAMロールARNを登録します。
+
+#### 動作確認
+
+1. Test profileの対象となるstagingまたはtest環境が、先にデプロイ済みであることを確認します。
+2. `main`へpushして`cdk.yml`を実行します。
+3. CDK deploy成功後にrelease testingが起動し、GitHub Check Runが`in_progress`からpassまたはfailに
+   変わることを確認します。
+4. DevOps AgentのRelease Managerでも実行結果、テストケース、失敗内容を確認します。
+
+WebhookまたはSecretが未設定の場合、release testingのActions stepは失敗します。
 
 ### AWS Security AgentとContinuum
 
@@ -193,8 +237,10 @@ AWS Transform continuous modernizationには、AWS側の管理インフラでdai
 ### GitHub ActionsのSecretsとVariables
 
 GitHubリポジトリの `Settings → Secrets and variables → Actions` から設定します。
-SecretはAWS ARN、Webhook URL、Webhook署名用Secretなど、ログに表示したくない値に使います。
-Variableは、ログに表示されても問題ない変換定義名やビルドコマンドなどの設定値に使います。
+`AWS_ROLE_ARN`はCDK deployとAWS Transform customの実行に使うGitHub Actions用IAMロールARNをRepository
+secretに登録します。その他のSecretはWebhook URLやWebhook署名用Secretなど、ログに表示したくない値に
+使います。Variableは、ログに表示されても問題ないTest profile ID、変換定義名やビルドコマンドなどの
+設定値に使います。
 
 | 名前 | 種類 | 用途 | 設定例 |
 | --- | --- | --- | --- |
@@ -338,6 +384,7 @@ sequenceDiagram
 - [AWS Transform custom][transform-custom]
 - [AWS Transform customのユースケース][transform-use-cases]
 - [AWS Transform CLI command reference][transform-command-reference]
+- [AWS DevOps Agent webhook設定][devops-webhook]
 - [AWS DevOps Agent release testing][devops-release-testing]
 - [AWS DevOps Agent release readiness code reviews][devops-release-readiness]
 - [AWS DevOps Agent GitHub Action][devops-agent-action]
@@ -356,6 +403,7 @@ sequenceDiagram
 [transform-custom]: https://docs.aws.amazon.com/transform/latest/userguide/custom.html
 [transform-use-cases]: https://docs.aws.amazon.com/transform/latest/userguide/custom-common-use-cases.html
 [transform-command-reference]: https://docs.aws.amazon.com/transform/latest/userguide/custom-command-reference.html
+[devops-webhook]: https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-invoking-devops-agent-through-webhook.html
 [devops-release-testing]: https://docs.aws.amazon.com/devopsagent/latest/userguide/release-management-release-testing.html
 [devops-release-readiness]: https://docs.aws.amazon.com/devopsagent/latest/userguide/release-management-release-readiness-code-review.html
 [devops-agent-action]: https://github.com/aws-actions/devops-agent-qa
