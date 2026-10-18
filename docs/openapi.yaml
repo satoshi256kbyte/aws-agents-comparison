@@ -1,0 +1,31 @@
+openapi: 3.0.3
+
+info:
+  title: AWS Agents Comparison Sample API
+  version: 1.0.0
+  description: Minimal API contract for DevOps Agent API testing.
+servers:
+  - url: https://<API_ID>.execute-api.<REGION>.amazonaws.com
+    description: Replace with the deployed API Gateway HTTP API base URL.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Check the sample API health
+      responses:
+        '200':
+          description: The sample Lambda API is available.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - service
+                  - message
+                properties:
+                  service:
+                    type: string
+                    example: sample-lambda-api
+                  message:
+                    type: string
+                    example: AWS agents comparison verification
