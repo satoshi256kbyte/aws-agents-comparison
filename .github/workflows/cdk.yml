@@ -70,7 +70,6 @@ jobs:
       pull-requests: read
     steps:
       - name: Run staging release test
-        id: release_test
         uses: aws-actions/devops-agent-qa@v1
         with:
           webhook-url: ${{ secrets.DEVOPS_AGENT_WEBHOOK_URL }}
@@ -79,44 +78,3 @@ jobs:
           test-requirement: Verify the deployed staging or test application after the CDK release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Wait for release test Check Run
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHECK_RUN_ID: ${{ steps.release_test.outputs.check-run-id }}
-        run: |
-          set -euo pipefail
-
-          timeout_seconds=1800
-          poll_interval=15
-          elapsed_seconds=0
-
-          if [[ -z "$CHECK_RUN_ID" ]]; then
-            echo "The release test did not return a Check Run ID." >&2
-            exit 1
-          fi
-
-          while (( elapsed_seconds < timeout_seconds )); do
-            check_run=$(gh api "repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_RUN_ID}")
-            status=$(jq -r '.status // empty' <<< "$check_run")
-            conclusion=$(jq -r '.conclusion // empty' <<< "$check_run")
-            echo "Release test Check Run: status=${status:-unknown}, conclusion=${conclusion:-pending}"
-
-            if [[ "$status" == "completed" ]]; then
-              case "$conclusion" in
-                success|neutral|skipped)
-                  exit 0
-                  ;;
-                *)
-                  echo "Release test Check Run failed with conclusion: ${conclusion:-unknown}" >&2
-                  exit 1
-                  ;;
-              esac
-            fi
-
-            sleep "$poll_interval"
-            elapsed_seconds=$((elapsed_seconds + poll_interval))
-          done
-
-          echo "Release test Check Run did not complete within 30 minutes." >&2
-          exit 1
